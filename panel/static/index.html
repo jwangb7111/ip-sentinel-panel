@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070b12">
+<title>IP-Sentinel · 控制台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="/style.css?v=10">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l11 4v9c0 7-5 11-11 13C10 27 5 23 5 16V7l11-4z' fill='%2322d3ee'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="login" class="login">
+  <div class="login-stage">
+    <div class="brand-mark">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3l11 4v9c0 7-5 11-11 13C10 27 5 23 5 16V7l11-4z" fill="url(#g1)"/><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+      <span>IP-Sentinel</span>
+    </div>
+    <h1>节点养护控制台</h1>
+    <p class="sub">登录后可管理舰队、下发指令并查看趋势</p>
+    <form id="login-form" autocomplete="off">
+      <label class="field">
+        <span>管理口令</span>
+        <input id="password" type="password" name="password" placeholder="输入口令" autocomplete="current-password" required>
+      </label>
+      <button class="btn primary block" type="submit">进入控制台</button>
+      <div id="login-error" class="form-error"></div>
+    </form>
+    <p class="foot">初始口令见服务器 <code>/root/.ips_panel_pw</code></p>
+  </div>
+</div>
+
+<!-- 应用 -->
+<div id="app" class="app hidden">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3l11 4v9c0 7-5 11-11 13C10 27 5 23 5 16V7l11-4z" fill="url(#g2)"/><defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+      <div>
+        <strong>IP-Sentinel</strong>
+        <small>分布式养护控制台</small>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a href="#/dashboard" data-nav="dashboard">
+        <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-16v5h6V4h-6z"/></svg>
+        <span>总览</span>
+      </a>
+      <a href="#/fleet" data-nav="fleet">
+        <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        <span>舰队</span>
+      </a>
+      <a href="#/audit" data-nav="audit">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v2H4V4zm0 5h16v2H4V9zm0 5h10v2H4v-2zm0 5h10v2H4v-2z"/></svg>
+        <span>命令审计</span>
+      </a>
+      <a href="#/settings" data-nav="settings">
+        <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9.4 4a7.6 7.6 0 01-.1 1.2l2 1.6-2 3.4-2.4-1a7.4 7.4 0 01-2 1.2l-.4 2.6h-4l-.4-2.6a7.4 7.4 0 01-2-1.2l-2.4 1-2-3.4 2-1.6A7.6 7.6 0 013 12c0-.4 0-.8.1-1.2l-2-1.6 2-3.4 2.4 1a7.4 7.4 0 012-1.2L9.9 3h4l.4 2.6a7.4 7.4 0 012 1.2l2.4-1 2 3.4-2 1.6c.1.4.1.8.1 1.2z"/></svg>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="side-status"><span class="dot ok" id="side-dot"></span><span id="side-text">运行中</span></div>
+      <small id="side-ver">panel 0.1 · va01</small>
+    </div>
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <div class="content">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="menu-btn" aria-label="菜单">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+      </button>
+      <div class="crumbs" id="crumbs">总览</div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="settings-btn" title="设置">
+        <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9.4 4a7.6 7.6 0 01-.1 1.2l2 1.6-2 3.4-2.4-1a7.4 7.4 0 01-2 1.2l-.4 2.6h-4l-.4-2.6a7.4 7.4 0 01-2-1.2l-2.4 1-2-3.4 2-1.6A7.6 7.6 0 013 12c0-.4 0-.8.1-1.2l-2-1.6 2-3.4 2.4 1a7.4 7.4 0 012-1.2L9.9 3h4l.4 2.6a7.4 7.4 0 012 1.2l2.4-1 2 3.4-2 1.6c.1.4.1.8.1 1.2z"/></svg>
+      </button>
+      <button class="btn ghost sm" id="refresh-btn">刷新</button>
+      <button class="icon-btn" id="logout-btn" title="退出登录">
+        <svg viewBox="0 0 24 24"><path d="M10 17l1.41-1.41L8.83 13H20v-2H8.83l2.58-2.59L10 7l-5 5 5 5z"/></svg>
+      </button>
+    </header>
+
+    <main id="view" class="view"></main>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status"></div>
+
+<script src="/app.js?v=10"></script>
+</body>
+</html>
