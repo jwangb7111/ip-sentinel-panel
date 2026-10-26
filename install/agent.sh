@@ -5,7 +5,7 @@
 #   bash install-agent.sh --master <面板域名> [选项]
 #
 # 选项：
-#   --master <域名>      必填，面板地址，如 ipsentinel.tigernet.work
+#   --master <域名>      必填，面板地址，如 panel.example.com
 #   --region <CC/SS/CITY> 可选，覆盖自动识别，如 US/VA/Ashburn
 #   --node-id <id>       可选，默认 <hostname>-<国家码>
 #   --port <端口>        可选，默认 9527
