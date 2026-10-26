@@ -50,7 +50,7 @@
 在一台公网 VPS 上（Ubuntu / Debian，1 核 1G 起），先确保域名已解析到这台机器：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<你的账号>/ip-sentinel-panel/main/install/master.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel/main/install/master.sh) \
   --domain panel.example.com
 ```
 
