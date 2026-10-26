@@ -41,9 +41,28 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$DOMAIN" ] || die "缺少 --domain"
 [ "$(id -u)" = "0" ] || die "需要 root"
+
+PUBIP="$( (curl -4 -fsS -m 6 https://api.ip.sb/ip || curl -4 -fsS -m 6 https://ifconfig.me/ip) 2>/dev/null | tr -d '[:space:]')"
+if [ -z "$DOMAIN" ]; then
+  DEF="${PUBIP:+${PUBIP}.nip.io}"
+  echo "未指定 --domain。"
+  if [ -n "$DEF" ]; then
+    echo "提示：没有域名可以直接用 ${DEF}（nip.io 免费泛解析，指向本机 IP）"
+    read -r -p "请输入面板域名（直接回车使用 ${DEF}）: " DOMAIN || true
+    DOMAIN="${DOMAIN:-$DEF}"
+  else
+    read -r -p "请输入面板域名: " DOMAIN || true
+  fi
+fi
+[ -n "$DOMAIN" ] || die "没有可用域名，无法继续"
+
 DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%%/*}"
+
+if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  warn "输入的是裸 IP。公共 CA 不能为 IP 签证书，自动改用 ${DOMAIN}.nip.io"
+  DOMAIN="${DOMAIN}.nip.io"
+fi
 
 echo
 printf '\033[36m=== IP-Sentinel Panel 主控安装 v%s ===\033[0m\n' "$VERSION"

@@ -379,8 +379,18 @@ class Handler(BaseHTTPRequestHandler):
     def _host(self):
         return (self.headers.get("Host") or "").split(":")[0]
 
+    def _is_https(self):
+        proto = (self.headers.get("X-Forwarded-Proto") or "").lower().strip()
+        if proto:
+            return proto == "https"
+        host = self._host()
+        if host in ("127.0.0.1", "localhost"):
+            return False
+        # 裸 IP 直连且没有反代头时，默认按 http 处理，避免 Cookie 失效
+        return not re.match(r"^\d+\.\d+\.\d+\.\d+$", host)
+
     def _cookie_header(self, sid=None):
-        secure = "" if self._host() in ("127.0.0.1", "localhost") else "; Secure"
+        secure = "; Secure" if self._is_https() else ""
         if sid is None:
             return "ips_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure
         return "ips_session=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict%s" % (sid, SESSION_TTL, secure)
