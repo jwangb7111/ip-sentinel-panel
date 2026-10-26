@@ -37,6 +37,12 @@ LOCK = threading.Lock()
 SEM = threading.Semaphore(8)
 SESSION_TTL = 7 * 24 * 3600
 
+# 定期质量探针的默认值（可在面板“设置”里改，存在 settings 表）
+SETTINGS_DEFAULTS = {
+    "probe_enabled": "1",
+    "probe_interval_hours": "6",
+}
+
 
 # ---------------------------------------------------------------- 数据库
 def connect():
@@ -76,6 +82,12 @@ def init_db():
             );
             CREATE UNIQUE INDEX IF NOT EXISTS runs_uniq
               ON runs(node_id, finished_at, action);
+            CREATE TABLE IF NOT EXISTS settings (
+              key TEXT PRIMARY KEY, value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS probe_state (
+              node_id TEXT PRIMARY KEY, last_probe_at TEXT
+            );
             """
         )
         try:
@@ -98,6 +110,23 @@ def init_db():
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_settings():
+    out = dict(SETTINGS_DEFAULTS)
+    try:
+        with connect() as c:
+            for r in c.execute("SELECT key, value FROM settings"):
+                out[r["key"]] = r["value"]
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def set_setting(key, value):
+    with connect() as c:
+        c.execute("INSERT INTO settings(key, value) VALUES(?,?)", (key, str(value)))
+        c.execute("UPDATE settings SET value=? WHERE key=?", (str(value), key))
 
 
 # ---------------------------------------------------------------- 本地 Agent 配置
@@ -331,6 +360,49 @@ def sync_local_run():
         pass
 
 
+def probe_quality_loop():
+    """定期质量探针：按设置里的周期给每台节点抓一次信用图谱。
+
+    周期与开关持久化在 settings 表，面板重启后继续生效；
+    上次触发时间存 probe_state，避免重启后重复触发同一轮。
+    """
+    time.sleep(180)
+    while True:
+        try:
+            st = get_settings()
+            if str(st.get("probe_enabled")) == "1":
+                try:
+                    hours = max(1.0, min(168.0, float(st.get("probe_interval_hours") or 6)))
+                except (TypeError, ValueError):
+                    hours = 6.0
+                minutes = int(hours * 60)
+                with connect() as c:
+                    # 首次运行：把已有趋势点当作上次采样时间，避免刚采过又立刻重采
+                    c.execute(
+                        "INSERT OR IGNORE INTO probe_state(node_id, last_probe_at) "
+                        "SELECT n.id, (SELECT MAX(t.created_at) FROM trend t WHERE t.node_id=n.id) "
+                        "FROM nodes n "
+                        "WHERE (SELECT MAX(t.created_at) FROM trend t WHERE t.node_id=n.id) IS NOT NULL"
+                    )
+                    rows = [dict(r) for r in c.execute(
+                        "SELECT n.id, n.ip, n.port, n.psk FROM nodes n "
+                        "LEFT JOIN probe_state p ON p.node_id=n.id "
+                        "WHERE COALESCE(n.status,'active')='active' "
+                        "AND (p.last_probe_at IS NULL OR p.last_probe_at < datetime('now', ?))",
+                        ("-%d minutes" % minutes,))]
+                for n in rows:
+                    code, out = call_agent(n, "/trigger_quality")
+                    if code == 0 and "Action Accepted" in (out or ""):
+                        with connect() as c:
+                            c.execute(
+                                "INSERT OR REPLACE INTO probe_state(node_id, last_probe_at) VALUES(?,?)",
+                                (n["id"], now()),
+                            )
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(300)
+
+
 def schedule_sync_loop():
     """定时巡检：本机读日志，子机在记录过期时拉一次日志。
 
@@ -448,18 +520,22 @@ def ingest_report(node_id, raw):
             score = v
     statuses = {}
     for k, v in STATUS_RE.findall(raw):
-        statuses[k.lower()] = v.strip()[:20]
+        clean = re.sub(r"[*`\s]+", " ", v).strip()
+        clean = re.sub(r"^[:：\-\s]+", "", clean)
+        # 只收短状态值（US / 仅自制 CA / 🟢 US），整句结论不要
+        if clean and len(clean) <= 24 and "！" not in clean:
+            statuses[k.lower()] = clean[:20]
     kind = "log" if "实时日志" in raw else "agent"
     with connect() as c:
         c.execute("INSERT INTO reports (node_id, kind, raw, created_at) VALUES (?,?,?,?)",
                   (node_id, kind, raw[:8000], now()))
-        if score is not None or statuses:
+        # 趋势图只画 Scamalytics 分数，没有分数的报告不落点
+        if score is not None:
             c.execute(
                 "INSERT INTO trend (node_id, score, google, netflix, gpt, created_at) VALUES (?,?,?,?,?,?)",
                 (node_id, score, statuses.get("google"), statuses.get("netflix"),
                  statuses.get("gpt") or statuses.get("chatgpt"), now()),
-            )
-    # 日志/简报里带上「本轮结束」时间就记一次定时运行；否则至少记「运行中」的活动时间
+            )    # 日志/简报里带上「本轮结束」时间就记一次定时运行；否则至少记「运行中」的活动时间
     run = parse_last_run(raw)
     if run:
         record_run(node_id, run[0], run[1], run[2], run[3])
@@ -595,6 +671,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return self._json({"error": "unauthorized"}, 401)
 
+        if path == "/api/settings":
+            return self._json({"settings": get_settings()})
+
         if path == "/api/nodes":
             with connect() as c:
                 rows = [dict(r) for r in c.execute(
@@ -697,6 +776,22 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authed():
             return self._json({"error": "unauthorized"}, 401)
+
+        if path == "/api/settings":
+            b = self._body()
+            if "probe_enabled" in b:
+                raw = b.get("probe_enabled")
+                on = raw is True or str(raw).lower() in ("1", "true", "on", "yes")
+                set_setting("probe_enabled", "1" if on else "0")
+            if "probe_interval_hours" in b:
+                try:
+                    v = float(b.get("probe_interval_hours"))
+                except (TypeError, ValueError):
+                    return self._json({"error": "周期必须是数字"}, 400)
+                if not (1 <= v <= 168):
+                    return self._json({"error": "周期需在 1-168 小时之间"}, 400)
+                set_setting("probe_interval_hours", str(int(v) if v == int(v) else v))
+            return self._json({"ok": True, "settings": get_settings()})
 
         if path == "/api/password":
             b = self._body()
@@ -922,6 +1017,7 @@ def main():
     seed_local_node()
     load_conf()
     threading.Thread(target=probe_loop, daemon=True).start()
+    threading.Thread(target=probe_quality_loop, daemon=True).start()
     threading.Thread(target=schedule_sync_loop, daemon=True).start()
     port = int(os.environ.get("PANEL_PORT", "8080"))
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)

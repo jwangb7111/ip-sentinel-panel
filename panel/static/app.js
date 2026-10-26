@@ -443,7 +443,7 @@ async function renderNode(id) {
 
     <div class="card panel">
       <h3>信用趋势</h3>
-      <div class="chart-wrap" id="chart-wrap"><div class="empty">暂无趋势数据，跑一轮 Google 纠偏后自动生成</div></div>
+      <div class="chart-wrap" id="chart-wrap"><div class="empty">暂无趋势数据，跑一轮「质量探针」后自动生成</div></div>
     </div>
 
     <div class="card panel">
@@ -554,7 +554,9 @@ async function renderAudit() {
 
 /* ---------------- 设置 ---------------- */
 async function renderSettings() {
-  const { nodes } = await api('/api/nodes');
+  const [{ nodes }, { settings }] = await Promise.all([
+    api('/api/nodes'), api('/api/settings'),
+  ]);
   view.innerHTML = `
     <div class="section-head"><h2>设置</h2></div>
 
@@ -571,6 +573,19 @@ async function renderSettings() {
         <button class="btn primary" type="submit">保存新口令</button>
       </form>
       <p class="tip">修改后其他设备的登录状态会立即失效。服务器上的一次性口令文件会被删除。</p>
+    </div>
+
+    <div class="card panel" style="max-width:560px">
+      <h3>定期质量探针</h3>
+      <p class="tip">按周期自动给每台节点抓一次信用图谱，详情页的趋势图才有数据点。设置存在数据库，重启和升级都不会丢。</p>
+      <label class="switch"><input type="checkbox" id="probe-enabled" ${settings.probe_enabled === '1' ? 'checked' : ''}> 启用自动采样</label>
+      <label class="field" style="margin-top:14px"><span>采样周期</span>
+        <select id="probe-interval">
+          ${[1, 3, 6, 12, 24].map((h) => `<option value="${h}" ${String(settings.probe_interval_hours) === String(h) ? 'selected' : ''}>每 ${h} 小时</option>`).join('')}
+        </select>
+      </label>
+      <button class="btn primary" id="probe-save">保存采样设置</button>
+      <p class="tip" id="probe-hint">当前：${settings.probe_enabled === '1' ? '已启用' : '已暂停'} · 每 ${esc(settings.probe_interval_hours)} 小时</p>
     </div>
 
     <div class="card panel" style="max-width:560px">
@@ -602,6 +617,28 @@ async function renderSettings() {
       btn.disabled = false; btn.textContent = '保存新口令';
     }
   });
+
+  const probeSave = $('#probe-save');
+  if (probeSave) {
+    probeSave.addEventListener('click', async () => {
+      const enabled = $('#probe-enabled').checked;
+      const hours = Number($('#probe-interval').value);
+      probeSave.disabled = true;
+      try {
+        const r = await api('/api/settings', {
+          method: 'POST',
+          body: JSON.stringify({ probe_enabled: enabled, probe_interval_hours: hours }),
+        });
+        const s = r.settings || {};
+        $('#probe-hint').textContent = `当前：${s.probe_enabled === '1' ? '已启用' : '已暂停'} · 每 ${s.probe_interval_hours} 小时`;
+        toast('采样设置已保存，下一轮按新周期执行', 'ok');
+      } catch (ex) {
+        toast(ex.message, 'err');
+      } finally {
+        probeSave.disabled = false;
+      }
+    });
+  }
 }
 
 /* ---------------- 交互绑定 ---------------- */
