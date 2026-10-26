@@ -289,6 +289,7 @@ if [ "$WITH_AGENT" = "y" ]; then
   if [ -f "$AGENT_SH" ]; then
     bash "$AGENT_SH" --master "$DOMAIN" --node-id master 2>&1 | sed 's/^/    /' || warn "Agent 安装失败，可稍后手动执行"
     sqlite3 "$INSTALL_DIR/data/panel.db" "UPDATE nodes SET status='active' WHERE status='pending';" 2>/dev/null || true
+    sqlite3 "$INSTALL_DIR/data/panel.db" "UPDATE nodes SET is_local=1 WHERE id='master';" 2>/dev/null || true
   else
     warn "未找到 agent.sh，跳过"
   fi
