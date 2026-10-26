@@ -44,7 +44,9 @@
           │ 上报（伪装成 Telegram sendMessage）
           └────────────► 面板 /api/agent/tgshim
 ```
-<img width="1091" height="755" alt="78c6a26e7165acf39ebddae002cae44" src="https://github.com/user-attachments/assets/3161b252-18c7-47c2-80a5-ff16b3c8c30b" />
+<img width="2220" height="1518" alt="image" src="https://github.com/user-attachments/assets/21581ee1-80d1-4c2a-afe3-bf39885fe188" />
+<img width="1764" height="1483" alt="image" src="https://github.com/user-attachments/assets/a404b573-cc51-4390-85f4-7e9b78140c6f" />
+
 
 ## 快速开始
 
