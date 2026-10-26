@@ -27,12 +27,12 @@ die()  { printf '\033[31m❌ %s\033[0m\n' "$*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --master)   MASTER="${2:-}"; shift 2 ;;
-    --region)   REGION_OVERRIDE="${2:-}"; shift 2 ;;
-    --node-id)  NODE_ID="${2:-}"; shift 2 ;;
-    --port)     AGENT_PORT="${2:-}"; shift 2 ;;
-    --enroll)   ENROLL="${2:-}"; shift 2 ;;
-    --version)  VERSION="${2:-}"; shift 2 ;;
+    --master)   [ $# -ge 2 ] || die "--master 后面需要跟主控域名"; MASTER="$2"; shift 2 ;;
+    --region)   [ $# -ge 2 ] || die "--region 后面需要跟 CC/SS/CITY"; REGION_OVERRIDE="$2"; shift 2 ;;
+    --node-id)  [ $# -ge 2 ] || die "--node-id 后面需要跟节点 ID"; NODE_ID="$2"; shift 2 ;;
+    --port)     [ $# -ge 2 ] || die "--port 后面需要跟端口号"; AGENT_PORT="$2"; shift 2 ;;
+    --enroll)   [ $# -ge 2 ] || die "--enroll 后面需要跟注册码"; ENROLL="$2"; shift 2 ;;
+    --version)  [ $# -ge 2 ] || die "--version 后面需要跟版本号"; VERSION="$2"; shift 2 ;;
     --dry-run)  DRY=1; shift ;;
     -h|--help)  sed -n '2,16p' "$0"; exit 0 ;;
     *) die "未知参数: $1" ;;
@@ -44,6 +44,11 @@ done
 
 MASTER="${MASTER#http://}"; MASTER="${MASTER#https://}"; MASTER="${MASTER%%/*}"
 PANEL="https://${MASTER}"
+
+# 先验证域名可解析，避免后面 curl 报含糊的 could not resolve host
+if ! getent hosts "$MASTER" >/dev/null 2>&1; then
+  die "无法解析域名 $MASTER。请检查节点 DNS/拼写，或改用主控公网 IP"
+fi
 printf '\033[36m\n=== IP-Sentinel Agent 安装器 ===\033[0m\n'
 echo "面板: $PANEL"
 

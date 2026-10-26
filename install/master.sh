@@ -31,13 +31,13 @@ usage() { sed -n '2,18p' "$0"; exit 0; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --domain)     DOMAIN="${2:-}"; shift 2 ;;
-    --tls)        TLS_MODE="${2:-}"; shift 2 ;;
-    --with-agent) WITH_AGENT="${2:-}"; shift 2 ;;
-    --port)       PORT="${2:-}"; shift 2 ;;
+    --domain)     [ $# -ge 2 ] || die "--domain 后面需要跟域名"; DOMAIN="$2"; shift 2 ;;
+    --tls)        [ $# -ge 2 ] || die "--tls 后面需要跟模式"; TLS_MODE="$2"; shift 2 ;;
+    --with-agent) [ $# -ge 2 ] || die "--with-agent 后面需要跟 y 或 n"; WITH_AGENT="$2"; shift 2 ;;
+    --port)       [ $# -ge 2 ] || die "--port 后面需要跟端口号"; PORT="$2"; shift 2 ;;
     --dry-run)    DRY=1; shift ;;
     -h|--help)    usage ;;
-    *) die "未知参数: $1" ;;
+    *) die "未知参数: $1（用 --help 查看用法）" ;;
   esac
 done
 
@@ -45,6 +45,9 @@ done
 
 PUBIP="$( (curl -4 -fsS -m 6 https://api.ip.sb/ip || curl -4 -fsS -m 6 https://ifconfig.me/ip) 2>/dev/null | tr -d '[:space:]')"
 if [ -z "$DOMAIN" ]; then
+  if [ ! -t 0 ]; then
+    die "未提供 --domain，且当前不是交互终端。请显式指定：--domain panel.example.com 或 --domain <公网IP>.nip.io"
+  fi
   DEF="${PUBIP:+${PUBIP}.nip.io}"
   echo "未指定 --domain。"
   if [ -n "$DEF" ]; then
@@ -112,6 +115,10 @@ TLS 方案   : $TLS_MODE
 仓库       : $REPO_SLUG@$BRANCH
 EOF
   exit 0
+fi
+
+if ss -lnt 2>/dev/null | grep -q ":${PORT} "; then
+  die "端口 ${PORT} 已被占用，请用 --port 指定其它端口（当前监听：$(ss -lntp 2>/dev/null | awk -v p=":${PORT}" '$4 ~ p {print $6; exit}')）"
 fi
 
 # ---------- 依赖 ----------
