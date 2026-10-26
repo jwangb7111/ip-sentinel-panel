@@ -39,7 +39,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$MASTER" ] || die "缺少 --master，例如：--master ipsentinel.tigernet.work"
+# 优先使用内置主控地址（由面板分发时写入），其次提示输入
+if [ -z "${MASTER:-}" ] && [ -n "${DEFAULT_MASTER:-}" ]; then
+  MASTER="$DEFAULT_MASTER"
+  echo "使用内置主控地址: $MASTER"
+fi
+if [ -z "${MASTER:-}" ] && [ -t 0 ]; then
+  read -r -p "请输入主控域名（例如 ipsentinel.tigernet.work）: " MASTER || true
+fi
+[ -n "${MASTER:-}" ] || die "缺少主控域名：请用 --master <域名>，或在交互终端下按提示输入"
 [ "$(id -u)" = "0" ] || die "需要 root"
 
 MASTER="${MASTER#http://}"; MASTER="${MASTER#https://}"; MASTER="${MASTER%%/*}"

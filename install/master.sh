@@ -155,7 +155,12 @@ mkdir -p "$INSTALL_DIR/src"
 cp -a "$TMP"/*/install "$INSTALL_DIR/src/" 2>/dev/null || true
 cp -a "$TMP"/*/version.txt "$INSTALL_DIR/src/" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/app.py"
-cp -f "$INSTALL_DIR/src/install/agent.sh" "$INSTALL_DIR/static/agent.sh" 2>/dev/null || true
+{
+  echo '#!/usr/bin/env bash'
+  printf 'DEFAULT_MASTER="%s"\n' "$DOMAIN"
+  tail -n +2 "$INSTALL_DIR/src/install/agent.sh"
+} > "$INSTALL_DIR/static/agent.sh"
+chmod 755 "$INSTALL_DIR/static/agent.sh"
 ok "代码已部署到 $INSTALL_DIR"
 
 # ---------- systemd ----------

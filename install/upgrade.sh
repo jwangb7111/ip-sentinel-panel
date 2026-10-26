@@ -40,7 +40,15 @@ rm -rf "$INSTALL_DIR/src"
 mkdir -p "$INSTALL_DIR/src"
 cp -a "$TMP"/*/install "$INSTALL_DIR/src/" 2>/dev/null || true
 cp -a "$TMP"/*/version.txt "$INSTALL_DIR/src/" 2>/dev/null || true
-cp -f "$INSTALL_DIR/src/install/agent.sh" "$INSTALL_DIR/static/agent.sh" 2>/dev/null || true
+DOMAIN="$(grep -o 'server_name [^;]*' /etc/nginx/sites-enabled/* 2>/dev/null | grep -v '_' | head -1 | awk '{print $2}')"
+if [ -n "$DOMAIN" ] && [ -f "$INSTALL_DIR/src/install/agent.sh" ]; then
+  {
+    echo '#!/usr/bin/env bash'
+    printf 'DEFAULT_MASTER="%s"\n' "$DOMAIN"
+    tail -n +2 "$INSTALL_DIR/src/install/agent.sh"
+  } > "$INSTALL_DIR/static/agent.sh"
+  chmod 755 "$INSTALL_DIR/static/agent.sh"
+fi
 
 log "重启服务…"
 systemctl restart "$SERVICE"

@@ -77,14 +77,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel
 
 ### 二、加子节点
 
-> ⚠️ **下面命令里的 `panel.example.com` 是示例域名，必须换成你自己的面板地址。**
-> 直接复制不改会报 `could not resolve host: panel.example.com`。
+> ⚠️ 下面命令里的 `ipsentinel.tigernet.work` 是示例域名，必须换成你自己的面板地址。
 
-在子节点上执行（把两处域名都换成你的面板域名）：
+在子节点上执行（**面板分发的 `agent.sh` 已内置主控域名，不需要任何参数**）：
 
 ```bash
-# 以 ipsentinel.tigernet.work 为例
-bash <(curl -fsSL https://ipsentinel.tigernet.work/agent.sh) --master ipsentinel.tigernet.work
+bash <(curl -fsSL https://ipsentinel.tigernet.work/agent.sh)
+```
+
+如果是从 GitHub 直接拉取脚本（而非面板分发），则需要自己指定：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/<账号>/ip-sentinel-panel/main/install/agent.sh) \
+  --master ipsentinel.tigernet.work
 ```
 
 脚本会自动：
