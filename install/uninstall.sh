@@ -24,12 +24,20 @@ read -r -p "确认继续？(y/N) " ans
 log "停止服务…"
 systemctl disable --now ipsentinel-panel.service 2>/dev/null || true
 rm -f /etc/systemd/system/ipsentinel-panel.service
+
+# 本机 Agent 也要一并停掉，否则卸载后仍会每 20 分钟发流量
+for u in ip-sentinel-agent-daemon.service ip-sentinel-runner.timer ip-sentinel-runner.service \
+         ip-sentinel-updater.timer ip-sentinel-updater.service ip-sentinel-report.timer; do
+  systemctl disable --now "$u" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$u"
+done
 systemctl daemon-reload
-ok "服务已移除"
+ok "服务已移除（含本机 Agent）"
 
 log "清理反向代理配置…"
-for f in /etc/nginx/sites-enabled/ipsentinel-*.conf; do
+for f in /etc/nginx/sites-enabled/*; do
   [ -e "$f" ] || continue
+  grep -q "127.0.0.1:8080" "$f" 2>/dev/null || continue
   rm -f "$f" "/etc/nginx/sites-available/$(basename "$f")"
   ok "已删除 nginx 站点 $(basename "$f")"
 done
@@ -41,11 +49,11 @@ fi
 
 log "清理文件…"
 if [ "$PURGE" = "1" ]; then
-  rm -rf "$INSTALL_DIR" /root/.ips_panel_pw
-  ok "程序、数据库、口令文件已删除"
+  rm -rf "$INSTALL_DIR" /opt/ip_sentinel /root/.ips_panel_pw
+  ok "程序、数据库、口令文件、Agent 目录已删除"
 else
   rm -rf "$INSTALL_DIR/static" "$INSTALL_DIR/app.py" "$INSTALL_DIR/src"
-  ok "程序已删除，数据库保留在 $INSTALL_DIR/data"
+  ok "程序已删除，数据库保留在 $INSTALL_DIR/data，Agent 目录保留在 /opt/ip_sentinel"
 fi
 
 echo

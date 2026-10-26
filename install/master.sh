@@ -187,7 +187,7 @@ ok "本地健康检查 200"
 # ---------- TLS ----------
 setup_nginx_site() {
   local cert="$1" key="$2"
-  local conf="/etc/nginx/sites-available/ipsentinel-${DOMAIN}.conf"
+  local conf="/etc/nginx/sites-available/${DOMAIN}.conf"
   cat > "$conf" <<NGINX
 server {
     listen 443 ssl http2;
@@ -215,7 +215,7 @@ server {
     }
 }
 NGINX
-  ln -sf "$conf" "/etc/nginx/sites-enabled/ipsentinel-${DOMAIN}.conf"
+  ln -sf "$conf" "/etc/nginx/sites-enabled/${DOMAIN}.conf"
   nginx -t || die "nginx 配置校验失败，已保留配置文件：$conf"
   systemctl reload nginx
 }
