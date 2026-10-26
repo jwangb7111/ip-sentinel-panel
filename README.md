@@ -47,14 +47,15 @@
 
 ### 一、装主控
 
-> 先把下面命令里的 `panel.example.com` 换成你自己的域名（可以是不存在的，但要能解析到这台机器）。
+> 下面的 `panel.example.com` 是示例，**换成你自己的域名**；不传 `--domain` 也可以，脚本会交互询问。
 
 在一台公网 VPS 上（Ubuntu / Debian，1 核 1G 起），先确保域名已解析到这台机器：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel/main/install/master.sh) \
-  --domain panel.example.com
+bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel/main/install/master.sh)
 ```
+
+运行后会提示输入域名；也可以直接带参数 `--domain panel.example.com`。
 
 脚本会：
 1. 装依赖、部署面板、起 systemd
@@ -77,20 +78,25 @@ bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel
 
 ### 二、加子节点
 
-> ⚠️ 下面命令里的 `ipsentinel.tigernet.work` 是示例域名，必须换成你自己的面板地址。
+> 下面的 `panel.example.com` 是示例，换成你自己的面板地址。
 
-在子节点上执行（**面板分发的 `agent.sh` 已内置主控域名，不需要任何参数**）：
-
-```bash
-bash <(curl -fsSL https://ipsentinel.tigernet.work/agent.sh)
-```
-
-如果是从 GitHub 直接拉取脚本（而非面板分发），则需要自己指定：
+#### 方式 A：从 GitHub 安装（通用，推荐）
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<账号>/ip-sentinel-panel/main/install/agent.sh) \
-  --master ipsentinel.tigernet.work
+bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel/main/install/agent.sh)
 ```
+
+脚本会提示输入主控域名，然后自动识别区域、安装并注册。
+也可以直接传参：`--master panel.example.com`。
+
+#### 方式 B：从你自己的面板安装
+
+```bash
+bash <(curl -fsSL https://你的面板域名/agent.sh)
+```
+
+这份副本内置的是**你自己面板**的域名（安装主控时写入本机，不进 GitHub 仓库），
+回车确认即可，也可以输入别的主控地址覆盖。
 
 脚本会自动：
 1. 探测公网 IP → 查地理位置 → 匹配上游战区的国家/州/城市
