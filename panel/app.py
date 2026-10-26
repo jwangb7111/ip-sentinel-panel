@@ -70,6 +70,12 @@ def init_db():
               id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT, score INTEGER,
               google TEXT, netflix TEXT, gpt TEXT, created_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS runs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT, action TEXT,
+              status TEXT, detail TEXT, finished_at TEXT, created_at TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS runs_uniq
+              ON runs(node_id, finished_at, action);
             """
         )
         try:
@@ -80,6 +86,9 @@ def init_db():
             "ALTER TABLE nodes ADD COLUMN status TEXT DEFAULT 'active'",
             "ALTER TABLE nodes ADD COLUMN reachable INTEGER",
             "ALTER TABLE nodes ADD COLUMN agent_version TEXT",
+            "ALTER TABLE nodes ADD COLUMN last_run_at TEXT",
+            "ALTER TABLE nodes ADD COLUMN last_run_status TEXT",
+            "ALTER TABLE nodes ADD COLUMN last_run_action TEXT",
         ):
             try:
                 c.execute(stmt)
@@ -287,6 +296,64 @@ def probe_loop():
         time.sleep(90)
 
 
+def sync_node_run(node):
+    try:
+        call_agent(node, "/trigger_log")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def sync_local_run():
+    """主控本机：直接解析本地 Agent 日志，不走网络。"""
+    try:
+        node_id = None
+        with connect() as c:
+            row = c.execute("SELECT id FROM nodes WHERE is_local=1 "
+                            "ORDER BY created_at LIMIT 1").fetchone()
+            if row:
+                node_id = row["id"]
+        if not node_id or not os.path.exists(LOCAL_LOG):
+            return
+        with open(LOCAL_LOG, "rb") as f:
+            try:
+                f.seek(-200000, os.SEEK_END)
+            except OSError:
+                f.seek(0)
+            text = f.read().decode("utf-8", "replace")
+        r = parse_last_run(text)
+        if r:
+            record_run(node_id, r[0], r[1], r[2], r[3])
+        else:
+            act = parse_last_activity(text)
+            if act:
+                record_activity(node_id, act)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def schedule_sync_loop():
+    """定时巡检：本机读日志，子机在记录过期时拉一次日志。
+
+    agent 侧 runner 每 20 分钟跑一轮，这里只在记录过期时补拉，
+    避免无谓流量；日志经 TG 垫片回传后由 ingest_report 落到 runs 表。
+    """
+    time.sleep(120)
+    while True:
+        try:
+            sync_local_run()
+            with connect() as c:
+                rows = [dict(r) for r in c.execute(
+                    "SELECT id, ip, port, psk FROM nodes "
+                    "WHERE COALESCE(is_local,0)=0 AND COALESCE(status,'active')='active' "
+                    "AND (last_run_at IS NULL "
+                    "     OR last_run_at < datetime('now','-25 minutes'))")]
+            for n in rows:
+                threading.Thread(target=sync_node_run, args=(n,), daemon=True).start()
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(600)
+
+
 def run_batch(cmds, action):
     with futures.ThreadPoolExecutor(max_workers=8) as ex:
         for node, cid in cmds:
@@ -296,6 +363,80 @@ def run_batch(cmds, action):
 # ---------------------------------------------------------------- 上报解析
 SCORE_RE = re.compile(r"(?i)scamalytics[^\d]{0,40}(\d{1,3})")
 STATUS_RE = re.compile(r"(?i)(google|netflix|gpt|chatgpt)[^:\n]{0,20}[:：]\s*([^\n|]{1,24})")
+
+# 定时任务运行记录：只认 agent 日志里「一轮结束」的行
+RUN_TS_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\]")
+RUN_MARKERS = ("调度完毕", "会话结束", "[END", "自检结论",
+               "信用净化完成", "目标区域达成")
+
+
+def parse_last_run(raw):
+    """从 agent 日志/简报里提取最后一次完成的运行（时间、是否成功、模块）。"""
+    best = None
+    for line in raw.splitlines():
+        if not any(k in line for k in RUN_MARKERS):
+            continue
+        m = RUN_TS_RE.search(line)
+        if not m:
+            continue
+        ts = m.group(1)
+        if best and ts <= best[0]:
+            continue
+        ok = not ("❌" in line or "失败" in line or "熔断" in line)
+        mod = ""
+        for k in ("Google", "Trust"):
+            if k in line:
+                mod = k.lower()
+                break
+        best = (ts, ok, mod, line.strip()[:200])
+    return best
+
+
+def parse_last_activity(raw):
+    """日志里最新的一条时间戳（可能是任务进行中，用作存活/活动信号）。"""
+    best = None
+    for m in RUN_TS_RE.finditer(raw):
+        ts = m.group(1)
+        if not best or ts > best:
+            best = ts
+    return best
+
+
+def record_activity(node_id, ts):
+    """只有活动时间、没有结束标记时记「运行中」，不写入 runs 历史。"""
+    if not node_id or not ts:
+        return
+    try:
+        with connect() as c:
+            c.execute(
+                "UPDATE nodes SET last_run_at=?, last_run_status='running', last_run_action='' "
+                "WHERE id=? AND (last_run_at IS NULL OR last_run_at<?)",
+                (ts, node_id, ts),
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def record_run(node_id, ts, ok, action="", detail=""):
+    """写入 runs 表（同一节点同一时间同模块只记一次），并刷新节点最近运行。"""
+    if not node_id or not ts:
+        return
+    try:
+        with connect() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO runs "
+                "(node_id, action, status, detail, finished_at, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (node_id, action or "", "ok" if ok else "fail",
+                 (detail or "")[:500], ts, now()),
+            )
+            c.execute(
+                "UPDATE nodes SET last_run_at=?, last_run_status=?, last_run_action=? "
+                "WHERE id=? AND (last_run_at IS NULL OR last_run_at<=?)",
+                (ts, "ok" if ok else "fail", action or "", node_id, ts),
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def ingest_report(node_id, raw):
@@ -308,15 +449,24 @@ def ingest_report(node_id, raw):
     statuses = {}
     for k, v in STATUS_RE.findall(raw):
         statuses[k.lower()] = v.strip()[:20]
+    kind = "log" if "实时日志" in raw else "agent"
     with connect() as c:
         c.execute("INSERT INTO reports (node_id, kind, raw, created_at) VALUES (?,?,?,?)",
-                  (node_id, "agent", raw[:8000], now()))
+                  (node_id, kind, raw[:8000], now()))
         if score is not None or statuses:
             c.execute(
                 "INSERT INTO trend (node_id, score, google, netflix, gpt, created_at) VALUES (?,?,?,?,?,?)",
                 (node_id, score, statuses.get("google"), statuses.get("netflix"),
                  statuses.get("gpt") or statuses.get("chatgpt"), now()),
             )
+    # 日志/简报里带上「本轮结束」时间就记一次定时运行；否则至少记「运行中」的活动时间
+    run = parse_last_run(raw)
+    if run:
+        record_run(node_id, run[0], run[1], run[2], run[3])
+    else:
+        act = parse_last_activity(raw)
+        if act:
+            record_activity(node_id, act)
 
 
 # ---------------------------------------------------------------- HTTP
@@ -449,7 +599,8 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 rows = [dict(r) for r in c.execute(
                     "SELECT id, ip, port, region, alias, is_local, enable_google, enable_trust, "
-                    "last_seen, last_status, created_at, status, reachable, agent_version "
+                    "last_seen, last_status, created_at, status, reachable, agent_version, "
+                    "last_run_at, last_run_status, last_run_action "
                     "FROM nodes ORDER BY is_local DESC, created_at")]
             return self._json({"nodes": rows})
 
@@ -457,8 +608,13 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 total = c.execute("SELECT COUNT(*) n FROM nodes").fetchone()["n"]
                 cmds = c.execute("SELECT COUNT(*) n FROM commands WHERE created_at >= date('now','-1 day')").fetchone()["n"]
-                reps = c.execute("SELECT COUNT(*) n FROM reports WHERE created_at >= date('now','-1 day')").fetchone()["n"]
-            return self._json({"nodes": total, "commands_24h": cmds, "reports_24h": reps})
+                reps = c.execute("SELECT COUNT(*) n FROM reports WHERE kind!='log' AND created_at >= date('now','-1 day')").fetchone()["n"]
+                active = c.execute("SELECT COUNT(*) n FROM nodes WHERE COALESCE(status,'active')='active'").fetchone()["n"]
+                ontime = c.execute("SELECT COUNT(*) n FROM nodes WHERE COALESCE(status,'active')='active' "
+                                   "AND last_run_at >= datetime('now','-40 minutes')").fetchone()["n"]
+                runs = c.execute("SELECT COUNT(*) n FROM runs WHERE created_at >= date('now','-1 day')").fetchone()["n"]
+            return self._json({"nodes": total, "commands_24h": cmds, "reports_24h": reps,
+                               "active": active, "ontime": ontime, "runs_24h": runs})
 
         if path == "/api/commands":
             with connect() as c:
@@ -523,6 +679,21 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     SESSIONS.pop(sid, None)
             return self._json({"ok": True}, headers={"Set-Cookie": self._cookie_header(None)})
+
+        # 节点主动心跳（runner 每轮结束时上报；也可面板巡检时使用）
+        if path == "/api/agent/heartbeat":
+            b = self._body()
+            psk = str(b.get("chat_id") or b.get("psk") or "")
+            if not psk:
+                return self._json({"error": "missing credential"}, 401)
+            with connect() as c:
+                row = c.execute("SELECT id FROM nodes WHERE psk=?", (psk,)).fetchone()
+            if not row:
+                return self._json({"error": "unknown node"}, 403)
+            record_run(row["id"], str(b.get("finished_at") or now()),
+                       bool(b.get("ok", True)), str(b.get("action") or ""),
+                       str(b.get("detail") or ""))
+            return self._json({"ok": True})
 
         if not self._authed():
             return self._json({"error": "unauthorized"}, 401)
@@ -751,6 +922,7 @@ def main():
     seed_local_node()
     load_conf()
     threading.Thread(target=probe_loop, daemon=True).start()
+    threading.Thread(target=schedule_sync_loop, daemon=True).start()
     port = int(os.environ.get("PANEL_PORT", "8080"))
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     srv.daemon_threads = True

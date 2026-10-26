@@ -136,8 +136,8 @@ async function renderDashboard() {
     <div class="stats">
       ${statCard('节点总数', nodes.length, '已纳管边缘哨兵')}
       ${statCard('在线节点', online, online === nodes.length && nodes.length ? '全部心跳正常' : '部分节点待探测')}
-      ${statCard('24h 指令', stats.commands_24h, '面板下发次数')}
-      ${statCard('24h 上报', stats.reports_24h, 'Agent 回传条数')}
+      ${statCard('按时运行', `${stats.ontime ?? 0}/${stats.active ?? nodes.length}`, '40 分钟内有运行记录')}
+      ${statCard('24h 运行', stats.runs_24h ?? 0, 'Agent 已完成轮次')}
     </div>
 
     <div class="section-head">
@@ -200,6 +200,7 @@ function masterCard(n) {
       <div class="ms"><span>出口 IP</span><b>${esc(n.ip)}</b></div>
       <div class="ms"><span>端口</span><b>${esc(n.port)}</b></div>
       <div class="ms"><span>心跳</span><b>${n.last_seen ? fmtTime(n.last_seen) : '—'}</b></div>
+      <div class="ms"><span>上次运行</span><b>${runAgo(n.last_run_at) || '—'}</b></div>
       <div class="ms"><span>模块</span><b>${n.enable_google ? 'G' : '–'} / ${n.enable_trust ? 'T' : '–'}</b></div>
     </div>
     <div class="master-actions">
@@ -247,6 +248,35 @@ function isOnline(n) {
   return Date.now() - t < 5 * 60 * 1000;
 }
 
+function runAgo(ts) {
+  if (!ts) return null;
+  const t = Date.parse(ts.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(t)) return null;
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (m < 1) return '刚刚';
+  if (m < 60) return m + ' 分钟前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' 小时前';
+  return Math.floor(h / 24) + ' 天前';
+}
+
+function isRunFresh(n) {
+  if (!n.last_run_at) return false;
+  const t = Date.parse(n.last_run_at.replace(' ', 'T') + 'Z');
+  return Number.isFinite(t) && Date.now() - t < 40 * 60 * 1000;
+}
+
+/* 定时任务是否有运行记录；超过 40 分钟没动静就算超期（20 分钟一轮 + 容忍） */
+function runTag(n) {
+  const ago = runAgo(n.last_run_at);
+  if (!ago) return '<span class="tag mute">运行记录待采集</span>';
+  if (!isRunFresh(n)) return `<span class="tag warn">上次运行 ${ago} · 超期</span>`;
+  if (n.last_run_status === 'running') return `<span class="tag ok">运行中 · ${ago}</span>`;
+  if (n.last_run_status === 'fail') return `<span class="tag bad">上次失败 · ${ago}</span>`;
+  const mod = n.last_run_action ? ' · ' + n.last_run_action : '';
+  return `<span class="tag ok">上次运行 ${ago}${mod}</span>`;
+}
+
 function statusTag(n) {
   if (!n.last_seen) return '<span class="tag mute">待探测</span>';
   return isOnline(n)
@@ -271,6 +301,7 @@ function nodeCard(n) {
       <span class="tag ${n.enable_google ? 'ok' : 'mute'}">Google ${n.enable_google ? '开' : '关'}</span>
       <span class="tag ${n.enable_trust ? 'ok' : 'mute'}">净化 ${n.enable_trust ? '开' : '关'}</span>
       <span class="tag mute">${n.last_seen ? '心跳 ' + fmtTime(n.last_seen) : '暂无心跳'}</span>
+      ${runTag(n)}
     </div>
     <div class="node-actions">
       <button class="btn sm" data-act="run" data-id="${esc(n.id)}">立即养护</button>
@@ -385,6 +416,7 @@ async function renderNode(id) {
         <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
       </button>
       <div class="meta">${esc(n.region || '未设置战区')} · ${esc(n.ip)}:${esc(n.port)}</div>
+      <div class="meta">${runTag(n)}</div>
     </div>
 
     <div class="card panel">
@@ -654,6 +686,16 @@ function updateSide(online, total) {
 
 /* ---------------- 启动 ---------------- */
 (async function boot() {
+  // 清掉历史遗留的旧 Service Worker：本域名在面板上线前曾落到 Sub-Store
+  // 默认站点，Sub-Store 的 PWA 在同一个 origin 注册过 /sw.js，会一直用缓存
+  // 返回 Sub-Store 的壳。这里对已有注册强制 update()，服务端的 sw.js 是
+  // 自杀式清理脚本，激活后会删缓存并注销自己。正常情况下没有注册，啥也不做。
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then((rs) => Promise.all(rs.map((r) => r.update().catch(() => {}))))
+      .catch(() => {});
+  }
+
   try {
     await api('/api/me');
     showApp();
