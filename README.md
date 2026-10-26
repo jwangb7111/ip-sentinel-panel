@@ -89,6 +89,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel
 脚本会提示输入主控域名，然后自动识别区域、安装并注册。
 也可以直接传参：`--master panel.example.com`。
 
+> 如果这条命令拿到的还是旧内容，说明 GitHub raw 的 CDN 缓存未刷新，可以改用：
+> ```bash
+> bash <(curl -fsSL https://cdn.jsdelivr.net/gh/jwangb7111/ip-sentinel-panel@main/install/agent.sh)
+> ```
+
 #### 方式 B：从你自己的面板安装
 
 ```bash

@@ -42,12 +42,10 @@ done
 # 优先使用内置主控地址（面板分发版才有），交互时允许改
 if [ -z "${MASTER:-}" ] && [ -n "${DEFAULT_MASTER:-}" ]; then
   if [ -t 0 ]; then
-    echo "本脚本内置的主控地址：${DEFAULT_MASTER}"
-    read -r -p "直接回车使用，或输入其它主控域名: " _ans || true
+    read -r -p "本脚本已内置主控地址，直接回车使用，或输入其它主控域名: " _ans || true
     MASTER="${_ans:-$DEFAULT_MASTER}"
   else
     MASTER="$DEFAULT_MASTER"
-    echo "使用内置主控地址: $MASTER"
   fi
 fi
 if [ -z "${MASTER:-}" ] && [ -t 0 ]; then
