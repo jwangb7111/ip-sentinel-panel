@@ -47,6 +47,8 @@
 
 ### 一、装主控
 
+> 先把下面命令里的 `panel.example.com` 换成你自己的域名（可以是不存在的，但要能解析到这台机器）。
+
 在一台公网 VPS 上（Ubuntu / Debian，1 核 1G 起），先确保域名已解析到这台机器：
 
 ```bash
@@ -75,10 +77,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/jwangb7111/ip-sentinel-panel
 
 ### 二、加子节点
 
-在子节点上执行：
+> ⚠️ **下面命令里的 `panel.example.com` 是示例域名，必须换成你自己的面板地址。**
+> 直接复制不改会报 `could not resolve host: panel.example.com`。
+
+在子节点上执行（把两处域名都换成你的面板域名）：
 
 ```bash
-bash <(curl -fsSL https://panel.example.com/agent.sh) --master panel.example.com
+# 以 ipsentinel.tigernet.work 为例
+bash <(curl -fsSL https://ipsentinel.tigernet.work/agent.sh) --master ipsentinel.tigernet.work
 ```
 
 脚本会自动：
