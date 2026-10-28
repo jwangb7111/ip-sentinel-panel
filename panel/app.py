@@ -124,9 +124,13 @@ def get_settings():
 
 
 def set_setting(key, value):
+    # 必须 upsert：键已存在时再 INSERT 会抛 UNIQUE 约束（曾导致保存采样设置 502）
     with connect() as c:
-        c.execute("INSERT INTO settings(key, value) VALUES(?,?)", (key, str(value)))
-        c.execute("UPDATE settings SET value=? WHERE key=?", (str(value), key))
+        c.execute(
+            "INSERT INTO settings(key, value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, str(value)),
+        )
 
 
 # ---------------------------------------------------------------- 本地 Agent 配置
@@ -738,6 +742,22 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "not found"}, 404)
 
     # -- api POST / PATCH / DELETE
+    def _save_settings(self):
+        b = self._body()
+        if "probe_enabled" in b:
+            raw = b.get("probe_enabled")
+            on = raw is True or str(raw).lower() in ("1", "true", "on", "yes")
+            set_setting("probe_enabled", "1" if on else "0")
+        if "probe_interval_hours" in b:
+            try:
+                v = float(b.get("probe_interval_hours"))
+            except (TypeError, ValueError):
+                return self._json({"error": "周期必须是数字"}, 400)
+            if not (1 <= v <= 168):
+                return self._json({"error": "周期需在 1-168 小时之间"}, 400)
+            set_setting("probe_interval_hours", str(int(v) if v == int(v) else v))
+        return self._json({"ok": True, "settings": get_settings()})
+
     def api_post(self, path, method="POST"):
         if path == "/api/login":
             ip = self.client_address[0]
@@ -778,20 +798,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "unauthorized"}, 401)
 
         if path == "/api/settings":
-            b = self._body()
-            if "probe_enabled" in b:
-                raw = b.get("probe_enabled")
-                on = raw is True or str(raw).lower() in ("1", "true", "on", "yes")
-                set_setting("probe_enabled", "1" if on else "0")
-            if "probe_interval_hours" in b:
-                try:
-                    v = float(b.get("probe_interval_hours"))
-                except (TypeError, ValueError):
-                    return self._json({"error": "周期必须是数字"}, 400)
-                if not (1 <= v <= 168):
-                    return self._json({"error": "周期需在 1-168 小时之间"}, 400)
-                set_setting("probe_interval_hours", str(int(v) if v == int(v) else v))
-            return self._json({"ok": True, "settings": get_settings()})
+            try:
+                return self._save_settings()
+            except Exception as e:  # noqa: BLE001
+                # 兜底：写库失败也回 JSON，不让连接裸断变成 nginx 502
+                return self._json({"error": "保存失败：%s" % e}, 500)
 
         if path == "/api/password":
             b = self._body()
